@@ -8,7 +8,29 @@ import org.stjs.generator.JavascriptFileGenerationException;
 
 public class SpecialMethodGeneratorTest {
 
+        private static String classPropertyTemplate="prototype.getClass = function() {" +
+                                    "return this.constructor['class'];};" +
+                                "constructor['class'] = {getName:function () {return 'org.ns.ClassProperty';}};"+
+                                "constructor.getName= function () { return this['class'].getName();};";
+            
 	@Test
+	public void testClassProperty() {
+            assertCodeContains(ClassProperty.class,"stjs.ns(\"org.ns\");" +
+                            "org.ns.ClassProperty = function() {};" +
+                            "stjs.extend(org.ns.ClassProperty, null, [], function(constructor, prototype) {" +
+                                 classPropertyTemplate+
+                            "}, {});");
+	}
+
+	@Test
+	public void testClassProperty2() {
+            assertCodeContains(TestClassProperty.class,
+                                    "prototype.test = function() {" +
+                                        "this.testClassName(TestClassProperty.IF1);"+
+                                    "};");
+        }
+	
+        @Test
 	public void testSpecialGet() {
 		// x.$get -> x[]
 		assertCodeContains(SpecialMethod1.class, "{}[\"3\"]");

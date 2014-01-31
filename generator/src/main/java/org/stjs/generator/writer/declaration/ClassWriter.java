@@ -34,6 +34,8 @@ import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.Tree;
+import javax.lang.model.element.Modifier;
+import org.stjs.javascript.annotation.GenerateClassProperty;
 
 public class ClassWriter<JS> implements WriterContributor<ClassTree, JS> {
 
@@ -125,22 +127,57 @@ public class ClassWriter<JS> implements WriterContributor<ClassTree, JS> {
 	/**
 	 * @return the JavaScript node for the class' members
 	 */
-	private JS getMembers(WriterVisitor<JS> visitor, ClassTree clazz, GenerationContext<JS> context) {
+	private JS getMembers(WriterVisitor<JS> visitor, ClassTree clazz, GenerationContext<JS> context,String className) {
 		// the following members must not appear in the initializer function:
 		// - constructors (they are printed elsewhere)
 		// - abstract methods (they should be omitted)
+		List<JS> stmts = new ArrayList<JS>();
+                
+                if(className!=null){
+                    JavaScriptBuilder<JS> builder = context.js();
 
+                    stmts.add(
+                        builder.expressionStatement(
+                            builder.assignment(AssignOperator.ASSIGN, 
+                                builder.code("prototype.getClass"),
+                                builder.function(null, new ArrayList<JS>(), builder.code("return this.constructor['class'];"))
+                            )
+                        )
+                    );
+
+                    stmts.add(
+                        builder.expressionStatement(
+                            builder.assignment(AssignOperator.ASSIGN, 
+                                builder.code("constructor['class']"),
+                                builder.code("{getName:function () {return '"+className+"';}}")
+                            )
+                        )
+                    );
+
+                    stmts.add(
+                        builder.expressionStatement(
+                            builder.assignment(AssignOperator.ASSIGN, 
+                                builder.code("constructor.getName"),
+                                builder.function(null, new ArrayList<JS>(),
+                                    builder.code(
+                                            "return this['class'].getName();"
+                                    )
+                                )
+                            )
+                        )
+                    );
+                }
+                
 		List<Tree> nonConstructors = getAllMembersExceptConstructors(clazz);
-
-		if (nonConstructors.isEmpty()) {
+                
+                if (nonConstructors.isEmpty() && className==null)
 			return context.js().keyword(Keyword.NULL);
-		}
+                
 		@SuppressWarnings("unchecked")
 		List<JS> params = Arrays.asList(context.js().name(JavascriptKeywords.CONSTRUCTOR), context.js().name(JavascriptKeywords.PROTOTYPE));
 
-		List<JS> stmts = new ArrayList<JS>();
 		for (Tree member : nonConstructors) {
-			stmts.add(visitor.scan(member, context));
+                    stmts.add(visitor.scan(member, context));
 		}
 
 		return context.js().function(null, params, context.js().block(stmts));
@@ -370,7 +407,13 @@ public class ClassWriter<JS> implements WriterContributor<ClassTree, JS> {
 
 		JS superClazz = getSuperClass(tree, context);
 		JS interfaces = getInterfaces(tree, context);
-		JS members = getMembers(visitor, tree, context);
+                
+                String className=null;
+                if(type.getAnnotation(GenerateClassProperty.class)!=null)
+                    className=typeName;
+                
+		JS members = getMembers(visitor, tree, context,className);
+                
 		JS typeDesc = getTypeDescription(visitor, tree, context);
 		boolean anonymousClass = tree.getSimpleName().length() == 0;
 
@@ -393,4 +436,23 @@ public class ClassWriter<JS> implements WriterContributor<ClassTree, JS> {
 
 		return js.statements(stmts);
 	}
+
+    private List<Tree> getClassNameMethods(ClassTree clazz) {
+        List<Tree> classNameMethods = new ArrayList<Tree>();
+        for (Tree member : clazz.getMembers()) {
+            if (isClassNameMethod(member)){
+                //MethodTree m=(MethodTree) member;
+                classNameMethods.add(member);
+            }
+        }
+        return classNameMethods;
+    }
+    
+    private boolean isClassNameMethod(Tree tree){
+        if (!(tree instanceof MethodTree)) {
+                return false;
+        }
+        MethodTree method = (MethodTree) tree;
+        return "getClassName".equals(method.getName().toString()) && !method.getModifiers().getFlags().contains(Modifier.STATIC);
+    }
 }
